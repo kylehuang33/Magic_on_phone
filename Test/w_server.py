@@ -18,9 +18,7 @@ MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/mod
 WHISPER_ARGS = [
     "-m", MODEL_PATH,
     "-t", "4",          # Number of threads, adjust based on your phone's cores
-    "--step", "3000",   # Process audio every 3000ms (3 seconds)
-    "--length", "10000", # Use a 10-second audio context window
-    "-v",               # Enable verbose output from whisper.cpp
+    "--stream",         # <-- This is the crucial new flag for streaming
     "-f", "-",          # Read audio from standard input (stdin)
 ]
 
