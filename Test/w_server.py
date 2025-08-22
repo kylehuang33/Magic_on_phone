@@ -9,7 +9,9 @@ WEBSOCKET_PORT = 8765        # The port the server will listen on
 
 # --- Path to your Whisper.cpp installation ---
 # Using the confirmed absolute path to the executable and model
-WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/main"
+# WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/main"
+# --- Path to your Whisper.cpp installation ---
+WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
 
 # --- Whisper.cpp Streaming Parameters ---
