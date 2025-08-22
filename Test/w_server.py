@@ -8,17 +8,19 @@ WEBSOCKET_HOST = "0.0.0.0"  # Listen on all available network interfaces
 WEBSOCKET_PORT = 8765        # The port the server will listen on
 
 # --- Path to your Whisper.cpp installation ---
-# Using the confirmed absolute path to the executable and model
-# WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/main"
-# --- Path to your Whisper.cpp installation ---
-WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
+# We are now pointing to the 'main' executable, which is what the older,
+# re-compiled version of whisper.cpp creates.
+WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/main"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
 
 # --- Whisper.cpp Streaming Parameters ---
+# We are using the --step and --length arguments again, because this is
+# what the older version of whisper.cpp uses for streaming from stdin.
 WHISPER_ARGS = [
     "-m", MODEL_PATH,
     "-t", "4",          # Number of threads, adjust based on your phone's cores
-    "--stream",         # <-- This is the crucial new flag for streaming
+    "--step", "3000",   # Process audio every 3000ms (3 seconds)
+    "--length", "10000", # Use a 10-second audio context window
     "-f", "-",          # Read audio from standard input (stdin)
 ]
 
@@ -68,8 +70,6 @@ async def audio_handler(websocket, path):
             if proc.stdin.is_closing():
                 print("Whisper process stdin is closed. Cannot write more data.")
                 break
-
-            # The received 'audio_chunk' is bytes, which is exactly what we need.
             proc.stdin.write(audio_chunk)
             await proc.stdin.drain()
 
@@ -79,8 +79,7 @@ async def audio_handler(websocket, path):
         print(f"An error occurred in audio_handler: {e}")
     finally:
         print("Cleaning up whisper.cpp process...")
-        # --- When the client disconnects, clean up the resources ---
-        if proc.returncode is None: # Check if process is still running
+        if proc.returncode is None:
             proc.stdin.close()
             await proc.wait()
         output_task.cancel()
