@@ -4,42 +4,64 @@ import os
 import sys
 
 # --- Configuration ---
-WEBSOCKET_HOST = "0.0.0.0"  # Listen on all available network interfaces
-WEBSOCKET_PORT = 8765        # The port the server will listen on
+WEBSOCKET_HOST = "0.0.0.0"
+WEBSOCKET_PORT = 8765
 
-# --- Path to your Whisper.cpp installation ---
-# Updated to point to the 'whisper-cli' executable
+# --- Paths to your executables and models ---
+# Ensure the whisper executable name is correct for your build.
+# It might be 'main', 'stream', or 'whisper-cli'.
 WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
 
-# --- Whisper.cpp Streaming Parameters ---
-# The arguments have been updated for real-time processing from standard input.
-# The `-f -` argument tells whisper-cli to read audio data from stdin.
-WHISPER_ARGS = [
-    "-m", MODEL_PATH,
-    "-t", "4",          # Number of threads, adjust based on your phone's cores
-    "-f", "-",          # Read audio from standard input (stdin)
+# --- FFmpeg Command ---
+# This command reads from stdin, assumes the input is webm/opus (common from browsers),
+# and converts it to 16-bit PCM mono audio at 16kHz, which is what whisper.cpp expects.
+FFMPEG_COMMAND = [
+    "ffmpeg",
+    "-i", "pipe:0",          # Read from standard input
+    "-f", "s16le",           # Output format: signed 16-bit little-endian PCM
+    "-ac", "1",              # Output audio channels: 1 (mono)
+    "-ar", "16000",          # Output sample rate: 16kHz
+    "pipe:1"                 # Write to standard output
 ]
 
-async def read_whisper_output(proc):
-    """Asynchronously reads and prints the real-time transcription from whisper.cpp."""
+# --- Whisper.cpp Command ---
+# The `-f -` argument tells whisper to read audio data from stdin.
+WHISPER_ARGS = [
+    "-m", MODEL_PATH,
+    "-t", "4",
+    "-f", "-",
+    # Add any other desired whisper.cpp flags here
+    # "--no-timestamps",
+]
+
+async def read_whisper_output(proc, websocket):
+    """Asynchronously reads transcription from whisper.cpp and sends it to the client."""
     while True:
         line = await proc.stdout.readline()
         if not line:
             print("Whisper process stdout closed.")
             break
-        text = line.decode('utf-8').strip()
-        # A simple filter to only show transcribed text
+        text = line.decode('utf-8', errors='ignore').strip()
+        # Filter out progress/logging messages from whisper.cpp
         if text and not text.startswith('[') and ']' not in text:
             print(f"Transcription: {text}")
+            try:
+                # Send the clean transcription to the WebSocket client
+                await websocket.send(text)
+            except websockets.exceptions.ConnectionClosed:
+                print("Client connection closed while sending transcription.")
+                break
 
 async def audio_handler(websocket, path):
     """
-    Handles a new WebSocket connection, receives audio, and pipes it to whisper.cpp.
+    Handles a WebSocket connection: starts FFmpeg and Whisper.cpp,
+    pipes audio from the client to FFmpeg, then to Whisper, and
+    sends transcription back to the client.
     """
     print(f"Client connected from {websocket.remote_address}")
 
-    # --- Verify that the whisper executable and model exist ---
+    # --- Verify that executables and models exist ---
     if not os.path.exists(WHISPER_EXECUTABLE):
         print(f"FATAL ERROR: Whisper executable not found at {WHISPER_EXECUTABLE}")
         return
@@ -47,45 +69,67 @@ async def audio_handler(websocket, path):
         print(f"FATAL ERROR: Whisper model not found at {MODEL_PATH}")
         return
 
-    print("Starting whisper.cpp subprocess...")
-    # --- Start the whisper.cpp subprocess for this client connection ---
-    proc = await asyncio.create_subprocess_exec(
-        WHISPER_EXECUTABLE,
-        *WHISPER_ARGS,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=sys.stderr  # Show whisper.cpp errors in the console
-    )
-    print(f"Whisper.cpp process started with PID: {proc.pid}")
-
-    # --- Create a task to handle whisper's output ---
-    output_task = asyncio.create_task(read_whisper_output(proc))
+    whisper_proc = None
+    ffmpeg_proc = None
+    output_task = None
 
     try:
-        # --- Receive audio from the client and forward it to whisper.cpp ---
+        print("Starting FFmpeg subprocess...")
+        ffmpeg_proc = await asyncio.create_subprocess_exec(
+            *FFMPEG_COMMAND,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=sys.stderr  # Show FFmpeg errors in the console
+        )
+
+        print("Starting whisper.cpp subprocess...")
+        whisper_proc = await asyncio.create_subprocess_exec(
+            WHISPER_EXECUTABLE,
+            *WHISPER_ARGS,
+            stdin=ffmpeg_proc.stdout,  # Pipe ffmpeg's output to whisper's input
+            stdout=asyncio.subprocess.PIPE,
+            stderr=sys.stderr  # Show whisper.cpp errors in the console
+        )
+        print(f"Whisper.cpp process started with PID: {whisper_proc.pid}")
+
+        # --- Create a task to handle whisper's output ---
+        output_task = asyncio.create_task(read_whisper_output(whisper_proc, websocket))
+
+        # --- Receive audio from the client and forward it to FFmpeg ---
         async for audio_chunk in websocket:
-            if proc.stdin.is_closing():
-                print("Whisper process stdin is closed. Cannot write more data.")
+            if ffmpeg_proc.stdin.is_closing():
+                print("FFmpeg process stdin is closed. Cannot write more data.")
                 break
             try:
-                proc.stdin.write(audio_chunk)
-                await proc.stdin.drain()
+                ffmpeg_proc.stdin.write(audio_chunk)
+                await ffmpeg_proc.stdin.drain()
             except BrokenPipeError:
-                print("Broken pipe: whisper.cpp process may have terminated unexpectedly.")
+                print("Broken pipe: FFmpeg process may have terminated unexpectedly.")
                 break
-
+            except Exception as e:
+                print(f"Error writing to FFmpeg stdin: {e}")
+                break
 
     except websockets.exceptions.ConnectionClosed as e:
         print(f"Client connection closed: {e.code} {e.reason}")
     except Exception as e:
         print(f"An error occurred in audio_handler: {e}")
     finally:
-        print("Cleaning up whisper.cpp process...")
-        if proc.returncode is None:
-            if not proc.stdin.is_closing():
-                proc.stdin.close()
-            await proc.wait()
-        output_task.cancel()
+        print("Cleaning up subprocesses...")
+        if ffmpeg_proc and ffmpeg_proc.returncode is None:
+            if not ffmpeg_proc.stdin.is_closing():
+                ffmpeg_proc.stdin.close()
+            await ffmpeg_proc.wait()
+            print("FFmpeg process terminated.")
+
+        if whisper_proc and whisper_proc.returncode is None:
+            whisper_proc.terminate() # Ensure whisper process is terminated
+            await whisper_proc.wait()
+            print("Whisper.cpp process terminated.")
+
+        if output_task:
+            output_task.cancel()
+
         print("Cleanup complete.")
 
 async def main():
