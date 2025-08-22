@@ -11,7 +11,7 @@ SOURCE_WEBSOCKET_URL = "ws://127.0.0.1:8765"  # IMPORTANT: Change this
 # Adjust this path if you cloned it elsewhere
 HOME_DIR = "/data/data/com.termux/files/home"
 WHISPER_CPP_DIR = os.path.join(HOME_DIR, "Magic_on_phone/modules/whisper.cpp")
-WHISPER_EXECUTABLE = os.path.join(WHISPER_CPP_DIR, "main")
+WHISPER_EXECUTABLE = os.path.join(WHISPER_CPP_DIR, "build/bin/main")
 MODEL_PATH = os.path.join(WHISPER_CPP_DIR, "models/ggml-base.en.bin")
 
 # --- Whisper.cpp Streaming Parameters ---
