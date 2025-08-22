@@ -9,7 +9,7 @@ SOURCE_WEBSOCKET_URL = "ws://127.0.0.1:8765"  # IMPORTANT: Change this
 # --- Path to your Whisper.cpp installation ---
 # Assumes you cloned whisper.cpp in the Termux home directory
 # Adjust this path if you cloned it elsewhere
-WHISPER_CPP_DIR = os.path.join(os.path.expanduser("~"), "whisper.cpp")
+WHISPER_CPP_DIR = os.path.join(os.path.expanduser("~"), "Magic_on_phone/modules/whisper.cpp")
 WHISPER_EXECUTABLE = os.path.join(WHISPER_CPP_DIR, "main")
 MODEL_PATH = os.path.join(WHISPER_CPP_DIR, "models/ggml-base.en.bin")
 
