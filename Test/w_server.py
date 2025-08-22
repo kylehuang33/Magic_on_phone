@@ -8,19 +8,16 @@ WEBSOCKET_HOST = "0.0.0.0"  # Listen on all available network interfaces
 WEBSOCKET_PORT = 8765        # The port the server will listen on
 
 # --- Path to your Whisper.cpp installation ---
-# We are now pointing to the 'main' executable, which is what the older,
-# re-compiled version of whisper.cpp creates.
-WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/main"
+# Updated to point to the 'whisper-cli' executable
+WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
 
 # --- Whisper.cpp Streaming Parameters ---
-# We are using the --step and --length arguments again, because this is
-# what the older version of whisper.cpp uses for streaming from stdin.
+# The arguments have been updated for real-time processing from standard input.
+# The `-f -` argument tells whisper-cli to read audio data from stdin.
 WHISPER_ARGS = [
     "-m", MODEL_PATH,
     "-t", "4",          # Number of threads, adjust based on your phone's cores
-    "--step", "3000",   # Process audio every 3000ms (3 seconds)
-    "--length", "10000", # Use a 10-second audio context window
     "-f", "-",          # Read audio from standard input (stdin)
 ]
 
@@ -32,7 +29,7 @@ async def read_whisper_output(proc):
             print("Whisper process stdout closed.")
             break
         text = line.decode('utf-8').strip()
-        # Clean, simple filter for transcribed text
+        # A simple filter to only show transcribed text
         if text and not text.startswith('[') and ']' not in text:
             print(f"Transcription: {text}")
 
@@ -70,8 +67,13 @@ async def audio_handler(websocket, path):
             if proc.stdin.is_closing():
                 print("Whisper process stdin is closed. Cannot write more data.")
                 break
-            proc.stdin.write(audio_chunk)
-            await proc.stdin.drain()
+            try:
+                proc.stdin.write(audio_chunk)
+                await proc.stdin.drain()
+            except BrokenPipeError:
+                print("Broken pipe: whisper.cpp process may have terminated unexpectedly.")
+                break
+
 
     except websockets.exceptions.ConnectionClosed as e:
         print(f"Client connection closed: {e.code} {e.reason}")
@@ -80,7 +82,8 @@ async def audio_handler(websocket, path):
     finally:
         print("Cleaning up whisper.cpp process...")
         if proc.returncode is None:
-            proc.stdin.close()
+            if not proc.stdin.is_closing():
+                proc.stdin.close()
             await proc.wait()
         output_task.cancel()
         print("Cleanup complete.")
