@@ -24,7 +24,7 @@ MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/mod
 WHISPER_ARGS = ["-m", MODEL_PATH, "-t", "4"]
 
 # --- Ollama Configuration ---
-OLLAMA_MODEL = "llama2-uncensored" # <-- 2. ADDED: Ollama model configuration
+OLLAMA_MODEL = "gemma3:1b" # <-- 2. ADDED: Ollama model configuration
 print(f"Using Ollama model: {OLLAMA_MODEL}")
 
 # --- VAD Configuration ---
