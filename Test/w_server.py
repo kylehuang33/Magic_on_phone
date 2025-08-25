@@ -9,12 +9,10 @@ WEBSOCKET_HOST = "0.0.0.0"  # Listen on all available network interfaces
 WEBSOCKET_PORT = 8765        # The port the server will listen on
 
 # --- Path to your Whisper.cpp installation ---
-# Using the confirmed absolute path to the executable and model
 WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
 
 # --- Whisper.cpp Parameters ---
-# NOTE: We are no longer using --stream as we process buffered audio
 WHISPER_ARGS = [
     "-m", MODEL_PATH,
     "-t", "4",          # Number of threads, adjust based on your phone's cores
@@ -24,20 +22,31 @@ WHISPER_ARGS = [
 # --- VAD Configuration ---
 # NOTE: webrtcvad requires audio to be 16-bit 16kHz mono.
 # The client sending the audio must be configured for this format.
-VAD_AGGRESSIVENESS = 3  # 0 to 3, 3 is the most aggressive in filtering out non-speech
-VAD_FRAME_DURATION_MS = 30  # Duration of a frame in milliseconds
+VAD_AGGRESSIVENESS = 3      # 0 to 3, 3 is the most aggressive in filtering out non-speech
 VAD_SAMPLE_RATE = 16000
-VAD_FRAME_SIZE = int(VAD_SAMPLE_RATE * (VAD_FRAME_DURATION_MS / 1000.0)) # Bytes per frame
+# VAD requires specific frame durations: 10, 20, or 30 ms.
+VAD_FRAME_DURATION_MS = 30  # Duration of a frame in milliseconds
+BYTES_PER_SAMPLE = 2        # 16-bit audio means 2 bytes per sample
+# This is the required size of a frame for the VAD
+VAD_FRAME_SIZE = int(VAD_SAMPLE_RATE * (VAD_FRAME_DURATION_MS / 1000.0) * BYTES_PER_SAMPLE)
 
-SILENCE_FRAMES_COUNT = 50 # Number of consecutive silent frames to trigger transcription
+# --- Speech Buffering Configuration ---
+# How many consecutive silent frames trigger a transcription
+SILENCE_FRAMES_THRESHOLD = 30
+# If the buffer gets too long, transcribe it anyway to avoid excessive memory use
+MAX_BUFFER_FRAMES = 300 # Approx 9 seconds of audio (300 frames * 30ms)
 
 async def transcribe_audio_buffer(audio_buffer):
     """
     Calls the whisper-cli subprocess to transcribe the buffered audio data.
     """
-    print(f"Processing {len(audio_buffer)} bytes of audio for transcription...")
+    if not audio_buffer:
+        print("Transcription buffer is empty, skipping.")
+        return
 
-    # --- Start the whisper.cpp subprocess for this audio chunk ---
+    print(f"Processing {len(b''.join(audio_buffer))} bytes of audio for transcription...")
+
+    # Start the whisper.cpp subprocess for this audio chunk
     proc = await asyncio.create_subprocess_exec(
         WHISPER_EXECUTABLE,
         *WHISPER_ARGS,
@@ -46,20 +55,19 @@ async def transcribe_audio_buffer(audio_buffer):
         stderr=sys.stderr  # Show whisper.cpp errors in the console
     )
 
-    # --- Write the buffered audio to whisper's stdin ---
+    # Write the buffered audio to whisper's stdin and get the result
     try:
         stdout, stderr = await proc.communicate(input=b''.join(audio_buffer))
-        if stdout:
-            transcription = stdout.decode('utf-8').strip()
+        if proc.returncode == 0 and stdout:
+            transcription = stdout.decode('utf-8', errors='ignore').strip()
             # Clean, simple filter for transcribed text
             if transcription and not transcription.startswith('[') and ']' not in transcription:
                 print(f"Transcription: {transcription}")
+        elif proc.returncode != 0:
+            print(f"Whisper.cpp exited with error code: {proc.returncode}")
+
     except Exception as e:
-        print(f"Error during transcription: {e}")
-    finally:
-        if proc.returncode is None:
-            proc.kill()
-            await proc.wait()
+        print(f"An error occurred during transcription: {e}")
 
 async def audio_handler(websocket, path):
     """
@@ -68,54 +76,66 @@ async def audio_handler(websocket, path):
     """
     print(f"Client connected from {websocket.remote_address}")
 
-    # --- Verify that the whisper executable and model exist ---
-    if not os.path.exists(WHISPER_EXECUTABLE):
-        print(f"FATAL ERROR: Whisper executable not found at {WHISPER_EXECUTABLE}")
-        return
-    if not os.path.exists(MODEL_PATH):
-        print(f"FATAL ERROR: Whisper model not found at {MODEL_PATH}")
+    if not os.path.exists(WHISPER_EXECUTABLE) or not os.path.exists(MODEL_PATH):
+        print("FATAL ERROR: Whisper executable or model not found.")
         return
 
     vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
-    vad_buffer = []
-    silent_frames = 0
+    speech_buffer = []      # Buffer to hold frames of speech
+    silent_frames_count = 0 # Counter for consecutive silent frames
+    
+    # *** THIS IS THE KEY FIX ***
+    # Buffer to accumulate incoming audio chunks from the websocket
+    frame_accumulator = b''
 
     try:
         async for audio_chunk in websocket:
-            # --- Ensure the audio chunk is the correct size for VAD ---
-            # This example assumes the client sends audio in perfect frame sizes.
-            # In a real-world application, you would need to buffer and segment
-            # the incoming audio into VAD_FRAME_SIZE chunks.
-            if len(audio_chunk) != VAD_FRAME_SIZE:
-                # This part needs to be more robust in a production system
-                # It should handle chunks that are smaller or larger than a frame.
-                print(f"Warning: Received chunk of size {len(audio_chunk)}, expected {VAD_FRAME_SIZE}. Skipping.")
-                continue
+            frame_accumulator += audio_chunk
 
-            is_speech = vad.is_speech(audio_chunk, VAD_SAMPLE_RATE)
+            # Process the accumulator in VAD-sized frames
+            while len(frame_accumulator) >= VAD_FRAME_SIZE:
+                # Extract one frame for VAD processing
+                frame = frame_accumulator[:VAD_FRAME_SIZE]
+                # Remove the processed frame from the accumulator
+                frame_accumulator = frame_accumulator[VAD_FRAME_SIZE:]
 
-            if is_speech:
-                vad_buffer.append(audio_chunk)
-                silent_frames = 0
-            else:
-                silent_frames += 1
-                if vad_buffer and silent_frames > SILENCE_FRAMES_COUNT:
-                    # We have a buffer of speech and have detected silence, so transcribe.
-                    await transcribe_audio_buffer(vad_buffer)
-                    vad_buffer = [] # Clear the buffer after processing
-                    silent_frames = 0
+                try:
+                    is_speech = vad.is_speech(frame, VAD_SAMPLE_RATE)
+                    if is_speech:
+                        speech_buffer.append(frame)
+                        silent_frames_count = 0
+                    else:
+                        if speech_buffer: # If we have speech buffered and now detect silence
+                            silent_frames_count += 1
+                    
+                    # Trigger transcription if we have a buffer and hit the silence threshold
+                    if speech_buffer and silent_frames_count >= SILENCE_FRAMES_THRESHOLD:
+                        await transcribe_audio_buffer(speech_buffer)
+                        speech_buffer = [] # Reset buffer
+                        silent_frames_count = 0
+
+                    # Also trigger transcription if the buffer gets too long
+                    if len(speech_buffer) >= MAX_BUFFER_FRAMES:
+                        print("Max buffer length reached, transcribing...")
+                        await transcribe_audio_buffer(speech_buffer)
+                        speech_buffer = [] # Reset buffer
+
+                except Exception as e:
+                    # This can happen if the audio format is incorrect
+                    print(f"Error during VAD processing: {e}")
+
 
     except websockets.exceptions.ConnectionClosed as e:
         print(f"Client connection closed: {e.code} {e.reason}")
-        # If there's remaining audio in the buffer when the client disconnects,
-        # process it.
-        if vad_buffer:
+        # If there's remaining audio in the buffer when the client disconnects, process it.
+        if speech_buffer:
             print("Processing remaining audio buffer after disconnection...")
-            await transcribe_audio_buffer(vad_buffer)
+            await transcribe_audio_buffer(speech_buffer)
+
     except Exception as e:
         print(f"An error occurred in audio_handler: {e}")
     finally:
-        print("Client disconnected. Cleanup complete.")
+        print("Client session finished.")
 
 
 async def main():
