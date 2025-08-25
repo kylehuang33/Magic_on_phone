@@ -29,7 +29,7 @@ print(f"Using Ollama model: {OLLAMA_MODEL}")
 
 # --- VAD Configuration ---
 # NOTE: Set aggressiveness from 0 (most sensitive) to 3 (least sensitive)
-VAD_AGGRESSIVENESS = 1 # Using a more sensitive setting
+VAD_AGGRESSIVENESS = 3 # Using a more sensitive setting
 VAD_SAMPLE_RATE = 16000
 VAD_FRAME_DURATION_MS = 30
 BYTES_PER_SAMPLE = 2
