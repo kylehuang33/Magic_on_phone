@@ -5,7 +5,7 @@ import sys
 import webrtcvad
 import wave
 import datetime
-import subprocess # Use the standard subprocess module for the synchronous worker
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 # --- Configuration ---
@@ -33,10 +33,48 @@ VAD_FRAME_SIZE = int(VAD_SAMPLE_RATE * (VAD_FRAME_DURATION_MS / 1000.0) * BYTES_
 SILENCE_FRAMES_THRESHOLD = 30
 MAX_BUFFER_FRAMES = 300
 
-# ==================================================================================
-# NEW: Synchronous worker function for blocking tasks
-# This function does the heavy lifting and will be run in a separate thread.
-# ==================================================================================
+
+def clean_whisper_output(text):
+    """
+    Cleans the raw output from whisper.cpp to get just the spoken text.
+    """
+    if not text:
+        return ""
+    
+    # Remove common whisper.cpp artifacts
+    text = text.replace("[BLANK_AUDIO]", "").replace("[SOUND]", "")
+    
+    # Remove any segments that are just timestamps or other metadata
+    # Whisper.cpp output often looks like: [ 0m0s -> 0m5s ] Hello there.
+    # We want to remove the [ 0m0s -> 0m5s ] part.
+    cleaned_lines = []
+    for line in text.split('\n'):
+        line = line.strip()
+        if line:
+            # Check for the common timestamp pattern at the beginning of the line
+            if line.startswith('[') and '->' in line and ']' in line:
+                parts = line.split(']', 1) # Split only on the first ']'
+                if len(parts) > 1:
+                    line = parts[1].strip()
+                else: # Only contains a timestamp, no actual speech after it
+                    line = ""
+            
+            # Remove any trailing periods that might be a result of truncation
+            if line.endswith('.'):
+                line = line[:-1]
+            
+            # Remove any trailing ellipsis
+            if line.endswith('...'):
+                line = line[:-3]
+
+            if line: # Only add non-empty lines
+                cleaned_lines.append(line)
+    
+    # Join lines and remove redundant spaces
+    cleaned_text = " ".join(cleaned_lines).strip()
+    return cleaned_text
+
+
 def transcription_worker(audio_buffer, task_id):
     """
     This is a standard Python function (not async).
@@ -51,24 +89,29 @@ def transcription_worker(audio_buffer, task_id):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
         wav_path = os.path.join(AUDIO_STORAGE_PATH, f"rec_{timestamp}.wav")
 
-        # 1. Blocking I/O: Writing the file
         with wave.open(wav_path, 'wb') as wf:
             wf.setnchannels(1)
             wf.setsampwidth(BYTES_PER_SAMPLE)
             wf.setframerate(VAD_SAMPLE_RATE)
             wf.writeframes(b''.join(audio_buffer))
 
-        # 2. Blocking and CPU-intensive: Running the subprocess
         command = [WHISPER_EXECUTABLE] + WHISPER_ARGS + ["-f", wav_path]
         print(f"[{task_id}] Executing command: {' '.join(command)}")
         
-        # Use the standard synchronous subprocess.run
         result = subprocess.run(command, capture_output=True, text=True, check=False)
 
         if result.returncode == 0:
-            transcription = result.stdout.strip()
-            if transcription and not transcription.startswith('[') and ']' not in transcription:
+            # ==================================================================================
+            # THIS IS WHERE THE TRANSCRIPTION OUTPUT IS CLEANED AND PRINTED
+            # ==================================================================================
+            raw_output = result.stdout
+            transcription = clean_whisper_output(raw_output)
+            
+            if transcription: # Only print if there's actual text after cleaning
                 print(f"[{task_id}] Transcription: {transcription}")
+            else:
+                print(f"[{task_id}] Transcription: (No discernible speech detected)")
+            # ==================================================================================
         else:
             print(f"[{task_id}] Whisper.cpp exited with error code: {result.returncode}")
             print(f"[{task_id}] Whisper.cpp stderr: {result.stderr.strip()}")
@@ -78,21 +121,17 @@ def transcription_worker(audio_buffer, task_id):
     finally:
         print(f"[{task_id}] Worker finished.")
 
-# ==================================================================================
-# MODIFIED: The async task now just handles handing off the work to the executor
-# ==================================================================================
+
 async def transcribe_audio_task(audio_buffer, task_id):
     """
     An async wrapper that runs the synchronous worker function in an executor.
     """
     loop = asyncio.get_running_loop()
     
-    # loop.run_in_executor sends the blocking function (transcription_worker)
-    # to a separate thread pool, so it doesn't block the main event loop.
     await loop.run_in_executor(
-        None,  # Use the default ThreadPoolExecutor
-        transcription_worker, # The function to run
-        audio_buffer, # Arguments for the function
+        None,
+        transcription_worker,
+        audio_buffer,
         task_id
     )
 
@@ -114,8 +153,6 @@ async def audio_handler(websocket, path):
 
     try:
         async for audio_chunk in websocket:
-            # This print statement will now execute without interruption
-            # print(f"Received {len(audio_chunk)} bytes...")
             frame_accumulator += audio_chunk
 
             while len(frame_accumulator) >= VAD_FRAME_SIZE:
@@ -139,7 +176,6 @@ async def audio_handler(websocket, path):
                         task_id = f"Task-{task_counter}"
                         task_counter += 1
                         
-                        # Create the async task that will run the worker in the background
                         asyncio.create_task(transcribe_audio_task(buffer_copy, task_id))
                         
                         speech_buffer.clear()
