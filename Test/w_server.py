@@ -2,41 +2,29 @@ import asyncio
 import websockets
 import os
 import sys
-import webrcvad
+import webrtcvad
 import wave
-import datetime  # Import datetime to create unique filenames
+import datetime
 
 # --- Configuration ---
-WEBSOCKET_HOST = "0.0.0.0"  # Listen on all available network interfaces
-WEBSOCKET_PORT = 8765        # The port the server will listen on
+WEBSOCKET_HOST = "0.0.0.0"
+WEBSOCKET_PORT = 8765
 
-# ==================================================================================
-# NEW: Define a directory to store the recorded audio clips
-# ==================================================================================
-# You can change this to any path you have write access to.
+# --- Audio Storage Configuration ---
 AUDIO_STORAGE_PATH = "/data/data/com.termux/files/home/audio_recordings"
-
-# --- Create the directory if it doesn't exist ---
 os.makedirs(AUDIO_STORAGE_PATH, exist_ok=True)
 print(f"Audio recordings will be saved in: {AUDIO_STORAGE_PATH}")
-# ==================================================================================
 
-
-# --- Path to your Whisper.cpp installation ---
+# --- Whisper.cpp Paths and Arguments ---
 WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
-
-# --- Whisper.cpp Parameters ---
-WHISPER_ARGS = [
-    "-m", MODEL_PATH,
-    "-t", "4",
-]
+WHISPER_ARGS = ["-m", MODEL_PATH, "-t", "4"]
 
 # --- VAD Configuration ---
 VAD_AGGRESSIVENESS = 3
 VAD_SAMPLE_RATE = 16000
 VAD_FRAME_DURATION_MS = 30
-BYTES_PER_SAMPLE = 2 # 16-bit
+BYTES_PER_SAMPLE = 2
 VAD_FRAME_SIZE = int(VAD_SAMPLE_RATE * (VAD_FRAME_DURATION_MS / 1000.0) * BYTES_PER_SAMPLE)
 
 # --- Speech Buffering Configuration ---
@@ -44,60 +32,56 @@ SILENCE_FRAMES_THRESHOLD = 30
 MAX_BUFFER_FRAMES = 300
 
 
-# ==================================================================================
-# MODIFIED: This function now saves the file permanently
-# ==================================================================================
 async def transcribe_audio_buffer(audio_buffer):
     """
-    Saves the buffered audio to a permanent WAV file and calls whisper-cli
-    to transcribe it.
+    This function now runs as an independent, background task.
+    It saves the audio to a file and calls whisper-cli.
     """
     if not audio_buffer:
-        print("Transcription buffer is empty, skipping.")
         return
 
-    print(f"Processing {len(b''.join(audio_buffer))} bytes of audio...")
+    task_id = asyncio.current_task().get_name()
+    print(f"[{task_id}] Starting transcription for {len(b''.join(audio_buffer))} bytes of audio.")
 
     try:
-        # Create a unique filename based on the current date and time
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
-        wav_path = os.path.join(AUDIO_STORAGE_PATH, f"recording_{timestamp}.wav")
+        wav_path = os.path.join(AUDIO_STORAGE_PATH, f"rec_{timestamp}.wav")
 
-        print(f"Saving audio to: {wav_path}")
-
-        # Use the wave module to write the raw audio bytes as a proper WAV file
         with wave.open(wav_path, 'wb') as wf:
-            wf.setnchannels(1)  # Mono
-            wf.setsampwidth(BYTES_PER_SAMPLE)  # 16-bit
-            wf.setframerate(VAD_SAMPLE_RATE)   # 16kHz
+            wf.setnchannels(1)
+            wf.setsampwidth(BYTES_PER_SAMPLE)
+            wf.setframerate(VAD_SAMPLE_RATE)
             wf.writeframes(b''.join(audio_buffer))
 
-        # Now, call whisper-cli with the path to the newly saved WAV file
         command = [WHISPER_EXECUTABLE] + WHISPER_ARGS + ["-f", wav_path]
+        print(f"[{task_id}] Executing command: {' '.join(command)}")
 
         proc = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=sys.stderr
+            stderr=asyncio.subprocess.PIPE  # Capture stderr as well
         )
 
         stdout, stderr = await proc.communicate()
 
-        if proc.returncode == 0 and stdout:
+        if proc.returncode == 0:
             transcription = stdout.decode('utf-8', errors='ignore').strip()
             if transcription and not transcription.startswith('[') and ']' not in transcription:
-                print(f"Transcription: {transcription}")
-        elif proc.returncode != 0:
-            print(f"Whisper.cpp exited with error code: {proc.returncode}")
+                print(f"[{task_id}] Transcription: {transcription}")
+        else:
+            # Log errors from whisper.cpp, which is crucial for debugging
+            print(f"[{task_id}] Whisper.cpp exited with error code: {proc.returncode}")
+            print(f"[{task_id}] Whisper.cpp stderr: {stderr.decode('utf-8', errors='ignore').strip()}")
 
     except Exception as e:
-        print(f"An error occurred during transcription: {e}")
+        print(f"[{task_id}] An error occurred during transcription: {e}")
+    finally:
+        print(f"[{task_id}] Transcription task finished.")
 
 
 async def audio_handler(websocket, path):
     """
-    Handles a new WebSocket connection, receives audio, uses VAD to buffer speech,
-    and then calls whisper.cpp for transcription.
+    Handles the WebSocket connection and incoming audio stream.
     """
     print(f"Client connected from {websocket.remote_address}")
 
@@ -109,6 +93,7 @@ async def audio_handler(websocket, path):
     speech_buffer = []
     silent_frames_count = 0
     frame_accumulator = b''
+    task_counter = 0
 
     try:
         async for audio_chunk in websocket:
@@ -126,25 +111,42 @@ async def audio_handler(websocket, path):
                     else:
                         if speech_buffer:
                             silent_frames_count += 1
+                    
+                    # Check if we should trigger a transcription task
+                    should_transcribe = (speech_buffer and silent_frames_count >= SILENCE_FRAMES_THRESHOLD) or \
+                                      (len(speech_buffer) >= MAX_BUFFER_FRAMES)
 
-                    if speech_buffer and silent_frames_count >= SILENCE_FRAMES_THRESHOLD:
-                        await transcribe_audio_buffer(speech_buffer)
+                    if should_transcribe:
+                        # ==========================================================
+                        # THIS IS THE KEY FIX
+                        # ==========================================================
+                        # We have a complete utterance. Create a background task
+                        # to process it. DO NOT await it here.
+                        print("Utterance detected. Creating background task for transcription.")
+                        
+                        # Pass a COPY of the buffer to the task.
+                        buffer_copy = list(speech_buffer)
+                        
+                        # Give the task a unique name for better logging
+                        task_name = f"TranscriptionTask-{task_counter}"
+                        task_counter += 1
+                        
+                        asyncio.create_task(transcribe_audio_buffer(buffer_copy), name=task_name)
+                        
+                        # Immediately reset the buffer and continue listening.
                         speech_buffer = []
                         silent_frames_count = 0
-
-                    if len(speech_buffer) >= MAX_BUFFER_FRAMES:
-                        print("Max buffer length reached, transcribing...")
-                        await transcribe_audio_buffer(speech_buffer)
-                        speech_buffer = []
+                        # ==========================================================
 
                 except Exception as e:
                     print(f"Error during VAD processing: {e}")
 
-
     except websockets.exceptions.ConnectionClosed as e:
         print(f"Client connection closed: {e.code} {e.reason}")
         if speech_buffer:
-            print("Processing remaining audio buffer after disconnection...")
+            print("Client disconnected. Processing final audio buffer...")
+            # Still process the last bit of audio, but no need to create a task
+            # as the server loop for this client is ending anyway.
             await transcribe_audio_buffer(speech_buffer)
     except Exception as e:
         print(f"An error occurred in audio_handler: {e}")
@@ -156,7 +158,7 @@ async def main():
     """Starts the WebSocket server."""
     async with websockets.serve(audio_handler, WEBSOCKET_HOST, WEBSOCKET_PORT):
         print(f"WebSocket server started at ws://{WEBSOCKET_HOST}:{WEBSOCKET_PORT}")
-        await asyncio.Future()  # Run forever
+        await asyncio.Future()
 
 if __name__ == "__main__":
     try:
