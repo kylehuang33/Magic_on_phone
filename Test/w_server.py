@@ -2,23 +2,34 @@ import asyncio
 import websockets
 import os
 import sys
-import webrtcvad
-import tempfile
+import webrcvad
 import wave
+import datetime  # Import datetime to create unique filenames
 
 # --- Configuration ---
 WEBSOCKET_HOST = "0.0.0.0"  # Listen on all available network interfaces
 WEBSOCKET_PORT = 8765        # The port the server will listen on
+
+# ==================================================================================
+# NEW: Define a directory to store the recorded audio clips
+# ==================================================================================
+# You can change this to any path you have write access to.
+AUDIO_STORAGE_PATH = "/data/data/com.termux/files/home/audio_recordings"
+
+# --- Create the directory if it doesn't exist ---
+os.makedirs(AUDIO_STORAGE_PATH, exist_ok=True)
+print(f"Audio recordings will be saved in: {AUDIO_STORAGE_PATH}")
+# ==================================================================================
+
 
 # --- Path to your Whisper.cpp installation ---
 WHISPER_EXECUTABLE = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/data/data/com.termux/files/home/DOING_PROJECTS/Magic_on_phone/modules/whisper.cpp/models/ggml-base.en.bin"
 
 # --- Whisper.cpp Parameters ---
-# NOTE: The file argument '-f' will be added dynamically in the transcription function
 WHISPER_ARGS = [
     "-m", MODEL_PATH,
-    "-t", "4",          # Number of threads, adjust based on your phone's cores
+    "-t", "4",
 ]
 
 # --- VAD Configuration ---
@@ -32,49 +43,52 @@ VAD_FRAME_SIZE = int(VAD_SAMPLE_RATE * (VAD_FRAME_DURATION_MS / 1000.0) * BYTES_
 SILENCE_FRAMES_THRESHOLD = 30
 MAX_BUFFER_FRAMES = 300
 
+
 # ==================================================================================
-# THIS FUNCTION IS THE PRIMARY FIX
+# MODIFIED: This function now saves the file permanently
 # ==================================================================================
 async def transcribe_audio_buffer(audio_buffer):
     """
-    Saves the buffered audio to a temporary WAV file and calls whisper-cli
-    to transcribe it. This is more reliable than piping to stdin.
+    Saves the buffered audio to a permanent WAV file and calls whisper-cli
+    to transcribe it.
     """
     if not audio_buffer:
         print("Transcription buffer is empty, skipping.")
         return
 
-    print(f"Processing {len(b''.join(audio_buffer))} bytes of audio for transcription...")
+    print(f"Processing {len(b''.join(audio_buffer))} bytes of audio...")
 
     try:
-        # Create a temporary WAV file to store the audio buffer
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmpfile:
-            wav_path = tmpfile.name
-            
-            # Use the wave module to write the raw audio bytes as a proper WAV file
-            with wave.open(tmpfile, 'wb') as wf:
-                wf.setnchannels(1)  # Mono
-                wf.setsampwidth(BYTES_PER_SAMPLE)  # 16-bit
-                wf.setframerate(VAD_SAMPLE_RATE)   # 16kHz
-                wf.writeframes(b''.join(audio_buffer))
-            
-            # Now, call whisper-cli with the path to the temporary WAV file
-            command = [WHISPER_EXECUTABLE] + WHISPER_ARGS + ["-f", wav_path]
-            
-            proc = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=sys.stderr
-            )
+        # Create a unique filename based on the current date and time
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+        wav_path = os.path.join(AUDIO_STORAGE_PATH, f"recording_{timestamp}.wav")
 
-            stdout, stderr = await proc.communicate()
+        print(f"Saving audio to: {wav_path}")
 
-            if proc.returncode == 0 and stdout:
-                transcription = stdout.decode('utf-8', errors='ignore').strip()
-                if transcription and not transcription.startswith('[') and ']' not in transcription:
-                    print(f"Transcription: {transcription}")
-            elif proc.returncode != 0:
-                print(f"Whisper.cpp exited with error code: {proc.returncode}")
+        # Use the wave module to write the raw audio bytes as a proper WAV file
+        with wave.open(wav_path, 'wb') as wf:
+            wf.setnchannels(1)  # Mono
+            wf.setsampwidth(BYTES_PER_SAMPLE)  # 16-bit
+            wf.setframerate(VAD_SAMPLE_RATE)   # 16kHz
+            wf.writeframes(b''.join(audio_buffer))
+
+        # Now, call whisper-cli with the path to the newly saved WAV file
+        command = [WHISPER_EXECUTABLE] + WHISPER_ARGS + ["-f", wav_path]
+
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=sys.stderr
+        )
+
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0 and stdout:
+            transcription = stdout.decode('utf-8', errors='ignore').strip()
+            if transcription and not transcription.startswith('[') and ']' not in transcription:
+                print(f"Transcription: {transcription}")
+        elif proc.returncode != 0:
+            print(f"Whisper.cpp exited with error code: {proc.returncode}")
 
     except Exception as e:
         print(f"An error occurred during transcription: {e}")
@@ -112,7 +126,7 @@ async def audio_handler(websocket, path):
                     else:
                         if speech_buffer:
                             silent_frames_count += 1
-                    
+
                     if speech_buffer and silent_frames_count >= SILENCE_FRAMES_THRESHOLD:
                         await transcribe_audio_buffer(speech_buffer)
                         speech_buffer = []
