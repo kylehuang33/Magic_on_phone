@@ -215,8 +215,19 @@ async def get_mcp_tools():
         async with Client(transport=SSETransport(f"{MCP_SERVER_URL}")) as client:
             tool_list = await client.list_tools()
             print("Successfully fetched tool list from MCP server.")
+
+            # Convert the list of Tool objects to a list of dictionaries
+            tools_as_dicts = []
+            for tool in tool_list:
+                tool_dict = {
+                    "name": getattr(tool, 'name', 'N/A'),
+                    "description": getattr(tool, 'description', ''),
+                    "parameters": getattr(tool, 'input_schema', {})
+                }
+                tools_as_dicts.append(tool_dict)
+
             # Pretty-print the tools as a JSON string for the prompt
-            return json.dumps(tool_list, indent=2)
+            return json.dumps(tools_as_dicts, indent=2)
     except Exception as e:
         print(f"FATAL ERROR: Could not connect to MCP server or fetch tools: {e}")
         print("Please ensure the MCP server is running and accessible.")
