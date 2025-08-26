@@ -212,7 +212,7 @@ async def get_mcp_tools():
     """Connects to the MCP server and fetches the list of available tools."""
     print(f"Attempting to connect to MCP server at {MCP_SERVER_URL} to get tools...")
     try:
-        async with Client(transport=SSETransport(f"{MCP_SERVER_URL}")) as client:
+        async with Client(transport=SSETransport(f"{MCP_SERVER_URL}/sse")) as client:
             tool_list = await client.list_tools()
             print("Successfully fetched tool list from MCP server.")
             # Pretty-print the tools as a JSON string for the prompt
