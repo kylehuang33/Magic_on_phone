@@ -44,7 +44,8 @@ async def audio_handler(websocket, path: str, system_prompt: str):
                     if is_utterance_end or is_buffer_full:
                         print("Utterance detected. Handing off to executor...")
                         buffer_copy = list(speech_buffer)
-                        task_id = f"Task-{websocket.id}-{task_counter}"
+                        # task_id = f"Task-{websocket.id}-{task_counter}"
+                        task_id = f"Task-{task_counter}"
                         task_counter += 1
                         # Create a non-blocking task for transcription and LLM processing
                         asyncio.create_task(transcribe_audio_task(buffer_copy, system_prompt, task_id))
