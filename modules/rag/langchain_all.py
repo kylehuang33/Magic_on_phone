@@ -56,7 +56,7 @@ cached_embedder = CacheBackedEmbeddings.from_bytes_store(
 
 # 4. Load and split the documents
 print("Loading documents...")
-raw_documents = TextLoader("/Users/kylehuang/Kyle/DOING-Projects/Huawei/Projects/Magic_on_phone/data/rag/meeting.txt").load()
+raw_documents = TextLoader("./data/rag/meeting.txt").load()
 text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
 documents = text_splitter.split_documents(raw_documents)
 print(f"Split into {len(documents)} documents.")
