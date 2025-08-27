@@ -79,7 +79,8 @@ print("Vector store created successfully.")
 
 # 6. QUERY
 # Let's try a query relevant to the new data
-query = "When and where is the flight?"
+# query = "When and where is the flight?"
+query = "Where and when is the dinner with Jamie?"
 retriever = vector_store.as_retriever()
 result_docs = retriever.get_relevant_documents(query)
 
