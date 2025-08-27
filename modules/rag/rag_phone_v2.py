@@ -18,14 +18,19 @@ class OllamaClient:
     def get_embedding(self, text):
         """Gets a vector embedding for a piece of text from Ollama."""
         try:
+            # The correct endpoint for modern Ollama versions
             endpoint = f"{self.base_url}/embeddings"
             data = {"model": self.model, "prompt": text}
             response = requests.post(endpoint, json=data)
             response.raise_for_status()
-            # The embedding dimension for Ollama's phi3 is 3072
             return response.json()["embedding"]
         except requests.exceptions.RequestException as e:
-            print(f"\nERROR: Could not connect to Ollama server: {e}")
+            # Check for 404 Not Found error specifically
+            if e.response and e.response.status_code == 404:
+                print("\nERROR: The /api/embeddings endpoint was not found.")
+                print("Please update Ollama with 'pkg update && pkg upgrade ollama'")
+            else:
+                print(f"\nERROR: Could not connect to Ollama server: {e}")
             sys.exit(1)
 
     def get_completion(self, prompt):
@@ -41,9 +46,8 @@ class OllamaClient:
             return ""
 
 def simple_text_splitter(text, chunk_size=512, chunk_overlap=50):
-    """A basic text splitter that splits text by character count."""
-    if len(text) <= chunk_size:
-        return [text]
+    """A basic text splitter."""
+    if len(text) <= chunk_size: return [text]
     chunks = []
     start = 0
     while start < len(text):
@@ -60,7 +64,7 @@ def find_most_similar(query_embedding, document_embeddings):
     return np.argmax(similarities)
 
 # --- 1. SETUP ---
-ollama_client = OllamaClient() # Our new client
+ollama_client = OllamaClient()
 DATA_DIR = "/data/data/com.termux/files/home/storage/downloads/testing"
 vector_store = {"chunks": [], "embeddings": []}
 
