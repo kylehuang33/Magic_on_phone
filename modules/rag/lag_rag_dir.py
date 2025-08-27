@@ -48,7 +48,7 @@ cached_embedder = CacheBackedEmbeddings.from_bytes_store(
 
 # 4. LOAD DOCUMENTS FROM MULTIPLE FORMATS
 print("Loading documents from directory...")
-DATA_DIR = "/data/data/com.termux/files/home/storage/downloads/testing"
+DATA_DIR = "./data/magic_cue"
 all_raw_documents = []
 
 # Loader for .txt files
