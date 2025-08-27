@@ -1,0 +1,42 @@
+[
+  {
+    "event_id": "cal_2001",
+    "title": "Flight BA082 HKG → LHR",
+    "start": "2025-08-27T13:00:00+01:00",
+    "end": "2025-08-27T19:40:00+01:00",
+    "location": "London Heathrow T5",
+    "all_day": false
+  },
+  {
+    "event_id": "cal_2002",
+    "title": "Team Sync",
+    "start": "2025-08-28T10:00:00+01:00",
+    "end": "2025-08-28T11:00:00+01:00",
+    "location": "Google Meet",
+    "all_day": false
+  },
+  {
+    "event_id": "cal_2003",
+    "title": "Dinner with Jamie",
+    "start": "2025-08-27T19:00:00+01:00",
+    "end": "2025-08-27T21:00:00+01:00",
+    "location": "221B Baker Street, NW1",
+    "all_day": false
+  },
+  {
+    "event_id": "cal_2004",
+    "title": "Gym",
+    "start": "2025-08-28T18:00:00+01:00",
+    "end": "2025-08-28T19:00:00+01:00",
+    "location": "Local Gym",
+    "all_day": false
+  },
+  {
+    "event_id": "cal_2005",
+    "title": "Dentist",
+    "start": "2025-09-02T09:30:00+01:00",
+    "end": "2025-09-02T10:00:00+01:00",
+    "location": "Smile Clinic",
+    "all_day": false
+  }
+]

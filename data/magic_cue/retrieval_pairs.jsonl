@@ -1,0 +1,5 @@
+{"trigger_notif": "notif_1003", "intent": "flight", "retrieved": [{"fact_id": "fact_flight_ba082", "cos_sim": 0.86, "rank": 1}, {"fact_id": "fact_album_brighton", "cos_sim": 0.22, "rank": 2}]}
+{"trigger_notif": "notif_1004", "intent": "photos", "retrieved": [{"fact_id": "fact_album_brighton", "cos_sim": 0.91, "rank": 1}]}
+{"trigger_notif": "notif_1001", "intent": "availability", "retrieved": [{"fact_id": "fact_availability_Thu", "cos_sim": 0.74, "rank": 1}]}
+{"trigger_notif": "notif_1007", "intent": "address", "retrieved": [{"fact_id": "fact_address_dinner", "cos_sim": 0.88, "rank": 1}]}
+{"trigger_notif": "notif_1008", "intent": "other", "retrieved": []}

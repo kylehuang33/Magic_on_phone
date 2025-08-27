@@ -1,0 +1,6 @@
+{
+  "calendar_day": "content://com.android.calendar/time/{epoch_ms}?view=day",
+  "maps_query": "geo:0,0?q={query_urlenc}",
+  "copy_text": "app://cuecore/copy?text={text_urlenc}",
+  "photos_album": "content://media/external/images/media?album={album_urlenc}"
+}

@@ -1,0 +1,9 @@
+intent,top_sim,avg_sim,n_facts,mins_since_last_same_intent,is_dnd,foreground_category,sender_priority,novelty,screen_on,label_clicked
+flight,0.86,0.54,2,180,0,communication,1,0.82,1,1
+photos,0.91,0.91,1,1440,0,communication,1,0.9,1,1
+availability,0.74,0.74,1,720,0,communication,1,0.7,1,1
+address,0.88,0.88,1,60,0,communication,1,0.85,1,1
+availability,0.31,0.31,1,30,0,productivity,0,0.2,1,0
+other,0.0,0.0,0,9999,0,other,0,0.0,1,0
+photos,0.8,0.8,1,30,1,communication,1,0.6,0,0
+flight,0.84,0.52,2,5,0,communication,1,0.1,1,0
