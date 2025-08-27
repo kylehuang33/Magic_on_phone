@@ -68,7 +68,7 @@ print("Vector store created successfully.")
 
 
 # 6. Use the vector_store for similarity searches
-query = "What did the president say about Ketanji Brown Jackson"
+query = "What is the personal info of Alice"
 retriever = vector_store.as_retriever()
 result_docs = retriever.get_relevant_documents(query)
 
