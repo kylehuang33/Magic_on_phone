@@ -8,10 +8,10 @@ sh ./models/download-ggml-model.sh base.en
 Now build the whisper-cli example and transcribe an audio file like this:
 
 ```
-# build the project
+# Now, configure the build again using cmake. The key is to add the flag -DBUILD_SHARED_LIBS=OFF. This tells CMake not to build the .so shared library and instead link everything statically.
+cmake -B build -DBUILD_SHARED_LIBS=OFF
 
-cmake -B build
-cmake --build build -j --config Release
+make -C build
 
 # transcribe an audio file
 ./build/bin/whisper-cli -f samples/jfk.wav

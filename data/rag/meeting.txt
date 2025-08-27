@@ -1,0 +1,39 @@
+=== TESTING DOCUMENT ===
+This is a sample testing document created for experiments.
+
+[Section 1: Greetings]
+Hello world!
+This is line one.
+This is line two.
+The quick brown fox jumps over the lazy dog.
+
+[Section 2: Random Facts]
+Fact 1: The Earth revolves around the Sun in approximately 365 days.
+Fact 2: Water boils at 100 degrees Celsius under standard conditions.
+Fact 3: Python is a popular programming language for AI and data science.
+
+[Section 3: Quotes]
+"Imagination is more important than knowledge." – Albert Einstein
+"Stay hungry, stay foolish." – Steve Jobs
+"The journey of a thousand miles begins with a single step." – Lao Tzu
+
+[Section 4: Sample Data]
+Name: Alice | Age: 25 | City: London
+Name: Bob   | Age: 30 | City: New York
+Name: Carol | Age: 28 | City: Tokyo
+
+[Section 5: Lorem Ipsum]
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi.
+
+[Section 6: Numbers]
+1234567890
+9876543210
+42 is the answer to life, the universe, and everything.
+
+[Section 7: End]
+This concludes the testing text file.
+Use this file for embeddings, chunking, or RAG pipeline evaluation.
+Good luck with your project!
+=== END OF FILE ===

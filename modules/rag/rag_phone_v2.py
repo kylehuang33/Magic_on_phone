@@ -29,6 +29,8 @@ class OllamaClient:
                 json={"model": model, "prompt": text},
                 timeout=60,
             )
+            # resp = ollama.embeddings(model=model, prompt=text)
+
             resp.raise_for_status()
             return resp.json()["embedding"]
         except requests.exceptions.RequestException as e:
