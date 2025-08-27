@@ -140,4 +140,23 @@ scores = cosine_sim_matrix(q_emb, vector_store["embeddings"])
 idxs = top_k_indices(scores, k=TOP_K)
 contexts = [vector_store["chunks"][i] for i in idxs]
 
-# Concatenate top-k contexts (you can
+# Concatenate top-k contexts (you can add separators or dedupe)
+joined_context = "\n\n---\n\n".join(contexts)
+print(f"   Top-{TOP_K} contexts selected.")
+
+# -------- 6) GENERATE --------
+print("\n5. Generating final response...")
+prompt = (
+    "You are a helpful assistant. Use ONLY the provided context to answer.\n"
+    "If the answer isn't in the context, say you don't know.\n\n"
+    f"Context:\n{joined_context}\n\n"
+    f"Question: {user_query}\n\n"
+    "Answer:"
+)
+final = ollama.generate(prompt)
+if final:
+    print("\n--- Final Result ---")
+    print(f"Query: {user_query}")
+    print("Response:", final.strip())
+else:
+    print("   No response from the model.")
