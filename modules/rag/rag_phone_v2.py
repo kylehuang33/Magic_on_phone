@@ -1,112 +1,143 @@
 import os
 import numpy as np
 import requests
-import json
 import sys
 
 print("--- RAG on a Phone (Ollama Edition) ---")
 print("Initializing...")
 
-# --- CORE COMPONENTS (NO LANGCHAIN) ---
+# -------- CONFIG --------
+DATA_DIR = "/data/data/com.termux/files/home/storage/downloads/testing"
+OLLAMA_HOST = "localhost"
+OLLAMA_PORT = "11434"
+EMBED_MODEL = "nomic-embed-text"  # embedding model
+LLM_MODEL = "gemma3:1b"           # generation model
+CHUNK_SIZE = 700
+CHUNK_OVERLAP = 120
+TOP_K = 3
 
+# -------- OLLAMA CLIENT --------
 class OllamaClient:
-    """A simple client to interact with the Ollama server."""
-    def __init__(self, host="localhost", port="11434", model="phi3"):
+    """Minimal Ollama client for embeddings and generation."""
+    def __init__(self, host="localhost", port="11434"):
         self.base_url = f"http://{host}:{port}/api"
-        self.model = model
 
-    def get_embedding(self, text):
-        """Gets a vector embedding for a piece of text from Ollama."""
+    def get_embedding(self, text, model=EMBED_MODEL):
         try:
-            # The correct endpoint for modern Ollama versions
-            endpoint = f"{self.base_url}/embeddings"
-            data = {"model": self.model, "prompt": text}
-            response = requests.post(endpoint, json=data)
-            response.raise_for_status()
-            return response.json()["embedding"]
+            resp = requests.post(
+                f"{self.base_url}/embeddings",
+                json={"model": model, "prompt": text},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            return resp.json()["embedding"]
         except requests.exceptions.RequestException as e:
-            # Check for 404 Not Found error specifically
-            if e.response and e.response.status_code == 404:
-                print("\nERROR: The /api/embeddings endpoint was not found.")
-                print("Please update Ollama with 'pkg update && pkg upgrade ollama'")
+            if getattr(e, "response", None) and e.response is not None and e.response.status_code == 404:
+                print("\nERROR: /api/embeddings not found. Update Ollama or check the endpoint.")
+                print("On Termux: `pkg update && pkg upgrade` then reinstall/upgrade ollama if needed.")
             else:
-                print(f"\nERROR: Could not connect to Ollama server: {e}")
+                print(f"\nERROR: Embedding request failed: {e}")
             sys.exit(1)
 
-    def get_completion(self, prompt):
-        """Gets a text completion from the Ollama LLM."""
+    def generate(self, prompt, model=LLM_MODEL):
         try:
-            endpoint = f"{self.base_url}/generate"
-            data = {"model": self.model, "prompt": prompt, "stream": False}
-            response = requests.post(endpoint, json=data)
-            response.raise_for_status()
-            return response.json()["response"]
+            resp = requests.post(
+                f"{self.base_url}/generate",
+                json={"model": model, "prompt": prompt, "stream": False},
+                timeout=120,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response", "")
         except requests.exceptions.RequestException as e:
-            print(f"\nERROR: Could not connect to Ollama server: {e}")
+            print(f"\nERROR: Generation request failed: {e}")
             return ""
 
-def simple_text_splitter(text, chunk_size=512, chunk_overlap=50):
-    """A basic text splitter."""
-    if len(text) <= chunk_size: return [text]
+# -------- HELPERS --------
+def simple_text_splitter(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
+    """Simple fixed-size splitter with overlap."""
+    if len(text) <= chunk_size:
+        return [text]
     chunks = []
     start = 0
+    step = max(1, chunk_size - chunk_overlap)
     while start < len(text):
         end = start + chunk_size
         chunks.append(text[start:end])
-        start += chunk_size - chunk_overlap
+        start += step
     return chunks
 
-def find_most_similar(query_embedding, document_embeddings):
-    """Finds the most similar document embedding using cosine similarity."""
-    query_norm = np.linalg.norm(query_embedding)
-    doc_norms = np.linalg.norm(document_embeddings, axis=1)
-    similarities = np.dot(document_embeddings, query_embedding) / (doc_norms * query_norm)
-    return np.argmax(similarities)
+def cosine_sim_matrix(query_vec, doc_mat):
+    """Cosine similarity between 1D query and 2D doc matrix."""
+    q = np.asarray(query_vec, dtype=np.float32)
+    D = np.asarray(doc_mat, dtype=np.float32)
+    qn = np.linalg.norm(q)
+    Dn = np.linalg.norm(D, axis=1)
+    # Avoid division by zero
+    qn = qn if qn != 0 else 1e-8
+    Dn = np.where(Dn == 0, 1e-8, Dn)
+    sims = (D @ q) / (Dn * qn)
+    return sims
 
-# --- 1. SETUP ---
-ollama_client = OllamaClient()
-DATA_DIR = "/data/data/com.termux/files/home/storage/downloads/testing"
-vector_store = {"chunks": [], "embeddings": []}
+def top_k_indices(scores, k=TOP_K):
+    k = min(k, len(scores))
+    return np.argpartition(scores, -k)[-k:][np.argsort(scores[np.argpartition(scores, -k)[-k:]])[::-1]]
 
-# --- 2. DOCUMENT LOADING ---
+# -------- 1) SETUP --------
+ollama = OllamaClient(OLLAMA_HOST, OLLAMA_PORT)
+vector_store = {"chunks": [], "embeddings": None}
+
+# -------- 2) LOAD DOCS --------
 print(f"1. Loading documents from: {DATA_DIR}")
 if not os.path.isdir(DATA_DIR):
-    print(f"  ERROR: Directory not found. Run 'termux-setup-storage' and ensure path is correct.")
+    print("  ERROR: Directory not found. Run `termux-setup-storage` and confirm the path.")
     sys.exit(1)
-all_texts = [open(os.path.join(DATA_DIR, f), 'r', encoding='utf-8', errors='ignore').read() for f in os.listdir(DATA_DIR) if os.path.isfile(os.path.join(DATA_DIR, f))]
-if not all_texts:
-    print("  WARNING: No documents found in the directory.")
-    sys.exit(1)
-document_text = "\n\n---\n\n".join(all_texts)
-print(f"   Successfully loaded {len(all_texts)} documents.")
 
-# --- 3. TEXT SPLITTING ---
+texts = []
+for f in os.listdir(DATA_DIR):
+    p = os.path.join(DATA_DIR, f)
+    if not os.path.isfile(p):
+        continue
+    # Only try obvious text-like files; adjust as needed
+    if any(p.lower().endswith(ext) for ext in [".txt", ".md", ".log", ".py", ".json", ".csv", ".yaml", ".yml", ".html"]):
+        try:
+            with open(p, "r", encoding="utf-8", errors="ignore") as fh:
+                texts.append(fh.read())
+        except Exception as e:
+            print(f"  Skipped {f} ({e})")
+
+if not texts:
+    print("  WARNING: No text-like documents found in the directory.")
+    sys.exit(1)
+
+document_text = "\n\n---\n\n".join(texts)
+print(f"   Successfully loaded {len(texts)} documents.")
+
+# -------- 3) SPLIT --------
 print("2. Splitting documents into chunks...")
 chunks = simple_text_splitter(document_text)
 vector_store["chunks"] = chunks
 print(f"   Text split into {len(chunks)} chunks.")
 
-# --- 4. EMBEDDING & STORING ---
-print("3. Generating and storing embeddings via Ollama...")
-embeddings = [ollama_client.get_embedding(chunk) for chunk in chunks]
-vector_store["embeddings"] = np.array(embeddings)
-print("   Embeddings created and stored in memory.")
+# -------- 4) EMBED --------
+print("3. Generating embeddings via Ollama (nomic-embed-text)...")
+emb_list = []
+for i, ch in enumerate(chunks):
+    emb = ollama.get_embedding(ch)
+    emb_list.append(emb)
+    if (i + 1) % 20 == 0:
+        print(f"   ...{i+1} / {len(chunks)} chunks embedded")
+vector_store["embeddings"] = np.array(emb_list, dtype=np.float32)
+print("   Embeddings stored in memory.")
 
-# --- 5. RAG QUERY ---
-user_query = "What is the core idea of RAG?" # <-- CHANGE THIS TO ASK ABOUT YOUR DOCUMENTS
+# -------- 5) QUERY --------
+user_query = "What is the core idea of RAG?"  # change as needed
 print(f"\n4. User Query: '{user_query}'")
 print("   Embedding user query...")
-query_embedding = np.array(ollama_client.get_embedding(user_query))
-print("   Searching for the most relevant context...")
-best_match_index = find_most_similar(query_embedding, vector_store["embeddings"])
-retrieved_context = vector_store["chunks"][best_match_index]
-print(f"   Context retrieved: \"{retrieved_context[:100]}...\"")
+q_emb = np.array(ollama.get_embedding(user_query), dtype=np.float32)
 
-# --- 6. GENERATION ---
-print("\n5. Generating final response...")
-prompt = f"Use the following context to answer the question.\n\nContext: {retrieved_context}\n\nQuestion: {user_query}\n\nAnswer:"
-final_response = ollama_client.get_completion(prompt)
-if final_response:
-    print("\n--- Final Result ---")
-    print(f"Query: {user_query}")
-    print(f"Response:{final_response.strip()}")
+print("   Ranking contexts by similarity...")
+scores = cosine_sim_matrix(q_emb, vector_store["embeddings"])
+idxs = top_k_indices(scores, k=TOP_K)
+contexts = [vector_store["chunks"][i] for i in idxs]
+
+# Concatenate top-k contexts (you can

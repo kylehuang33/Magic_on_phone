@@ -1,6 +1,6 @@
 zstandard==0.22.0
-langchain==0.3.6
-langchain-objectbox==0.1.1
-objectbox
-langchain-community==0.3.6
-langchain-core
+# langchain
+# langchain-objectbox==0.1.1
+# objectbox
+# langchain-community==0.3.6
+# langchain-core
