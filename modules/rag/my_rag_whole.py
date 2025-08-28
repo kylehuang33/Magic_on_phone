@@ -1,23 +1,15 @@
 import os
 import requests
 from typing import List
-import ollama  # Import the ollama library
+import ollama  # Added the missing import
 
-# Make sure you have the necessary packages installed:
-# pip install pypdf "langchain-community[pandas]" ollama
+# Ensure necessary packages are installed
 from langchain.embeddings import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
-from langchain_community.document_loaders import (
-    DirectoryLoader,
-    TextLoader,
-    JSONLoader,
-    CSVLoader,
-    PyPDFLoader
-)
+from langchain_community.document_loaders import DirectoryLoader, JSONLoader
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import CharacterTextSplitter
-
 
 # --- Custom Embeddings Class (No changes) ---
 class CustomOllamaEmbeddings(Embeddings):
@@ -42,41 +34,41 @@ class CustomOllamaEmbeddings(Embeddings):
 model_name = "nomic-embed-text:latest"
 safe_namespace = model_name.replace(":", "_")
 underlying_embeddings = CustomOllamaEmbeddings(model=model_name)
-store = LocalFileStore("./cache/magic_cue")
+store = LocalFileStore("./cache/")
 cached_embedder = CacheBackedEmbeddings.from_bytes_store(
     underlying_embeddings, store, namespace=safe_namespace
 )
 # --------------------------------------------------
 
-# 4. LOAD DOCUMENTS FROM MULTIPLE FORMATS
-print("Loading documents from directory...")
-DATA_DIR = "./data/magic_cue"
+# 4. LOAD AND PROCESS THE SYNTHETIC DATA
+print("Loading and processing documents from the synthetic dataset...")
+DATA_DIR = "./data/magic_cue" # The base directory where your files are
 all_raw_documents = []
 
-# Loader for .txt files
-txt_loader = DirectoryLoader(DATA_DIR, glob="**/*.txt", loader_cls=TextLoader, show_progress=True)
-all_raw_documents.extend(txt_loader.load())
+# Loader for notifications.jsonl
+notifications_loader = DirectoryLoader(DATA_DIR, glob="**/notifications.jsonl", loader_cls=JSONLoader,
+                                       loader_kwargs={'jq_schema': '"Notification from \(.title): \(.text)"', 'json_lines': True}, show_progress=True)
+all_raw_documents.extend(notifications_loader.load())
 
-# Loader for .json files
-json_loader = DirectoryLoader(DATA_DIR, glob="**/*.json", loader_cls=JSONLoader, loader_kwargs={'jq_schema': '.content'}, show_progress=True)
-all_raw_documents.extend(json_loader.load())
+# Loader for calendar_events.json
+calendar_loader = DirectoryLoader(DATA_DIR, glob="**/calendar_events.json", loader_cls=JSONLoader,
+                                  loader_kwargs={'jq_schema': '.[] | "Calendar Event: \(.title) at \(.location)"', 'json_lines': False}, show_progress=True)
+all_raw_documents.extend(calendar_loader.load())
 
-# Loader for .jsonl files
-jsonl_loader = DirectoryLoader(DATA_DIR, glob="**/*.jsonl", loader_cls=JSONLoader, loader_kwargs={'jq_schema': '.message', 'json_lines': True}, show_progress=True)
-all_raw_documents.extend(jsonl_loader.load())
+# Loader for photos_index.jsonl
+photos_loader = DirectoryLoader(DATA_DIR, glob="**/photos_index.jsonl", loader_cls=JSONLoader,
+                                loader_kwargs={'jq_schema': '"Photo Album: \(.album). Tags: \(.tags | join(", "))"', 'json_lines': True}, show_progress=True)
+all_raw_documents.extend(photos_loader.load())
 
-# Loader for .csv files
-csv_loader = DirectoryLoader(DATA_DIR, glob="**/*.csv", loader_cls=CSVLoader, loader_kwargs={'source_column': 'employee_id', 'encoding': 'utf-8'}, show_progress=True)
-all_raw_documents.extend(csv_loader.load())
-
-# Loader for .pdf files
-pdf_loader = DirectoryLoader(DATA_DIR, glob="**/*.pdf", loader_cls=PyPDFLoader, show_progress=True)
-all_raw_documents.extend(pdf_loader.load())
+# Loader for facts_appsearch.jsonl
+facts_loader = DirectoryLoader(DATA_DIR, glob="**/facts_appsearch.jsonl", loader_cls=JSONLoader,
+                               loader_kwargs={'jq_schema': '"Fact: \(.title). Details: \(.entities | tostring)"', 'json_lines': True}, show_progress=True)
+all_raw_documents.extend(facts_loader.load())
 
 
-print(f"Loaded a total of {len(all_raw_documents)} documents from all sources.")
+print(f"Loaded a total of {len(all_raw_documents)} relevant documents.")
 
-# 5. SPLIT, EMBED, and STORE (No changes)
+# 5. SPLIT, EMBED, AND STORE (No changes)
 text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
 documents = text_splitter.split_documents(all_raw_documents)
 print(f"Split into {len(documents)} document chunks.")
@@ -86,15 +78,24 @@ vector_store = InMemoryVectorStore.from_documents(documents, cached_embedder)
 print("Vector store created successfully.")
 # --------------------------------------------------
 
-# 6. RETRIEVE
+# 6. QUERY
+# Let's try a query relevant to the new data
+# query = "When and where is the flight?"
 query = "Where and when is the dinner with Jamie?"
 retriever = vector_store.as_retriever()
 result_docs = retriever.get_relevant_documents(query)
 
-# --- 7. AUGMENT AND GENERATE WITH OLLAMA LIBRARY (Corrected) ---
-print("\n--- Generating Response with ollama library ---")
+print("\n--- Query Results ---")
+if result_docs:
+    for doc in result_docs:
+      print(f"Content: {doc.page_content}")
+      print(f"Source: {doc.metadata.get('source', 'N/A')}\n")
+else:
+    print("No relevant documents found.")
+print("---------------------\n")
 
-# Format the retrieved documents into a single context string
+# 7. QUESTION ANSWERING
+print("--- Generating Answer ---")
 context = "\n\n".join(doc.page_content for doc in result_docs)
 
 # Build the prompt
