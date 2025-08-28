@@ -111,11 +111,17 @@ Question: {query}
 try:
     # --- CHANGE: Initialize the Llama model ---
     # IMPORTANT: Replace "path/to/your/model.gguf" with the actual path to your downloaded model file.
-    llm = Llama(
-        model_path="/data/data/com.termux/files/home/models/gemma-3-1b-it-GGUF/gemma-3-1b-it-Q8_0.gguf",
-        n_ctx=2048,      # Context window size
-        n_gpu_layers=-1, # -1 to offload all possible layers to GPU
+    # llm = Llama(
+    #     model_path="/data/data/com.termux/files/home/models/gemma-3-1b-it-GGUF/gemma-3-1b-it-Q8_0.gguf",
+    #     n_ctx=2048,      # Context window size
+    #     n_gpu_layers=-1, # -1 to offload all possible layers to GPU
+    # )
+    llm = Llama.from_pretrained(
+        repo_id="Qwen/Qwen2-0.5B-Instruct-GGUF",
+        # filename="*q8_0.gguf",
+        verbose=False
     )
+
 
     # --- CHANGE: Call the Llama.cpp API ---
     # The API is similar to OpenAI's chat completions
