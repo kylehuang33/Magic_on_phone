@@ -114,7 +114,7 @@ try:
 
     # Call the Ollama API using the explicit client
     response = client.chat(
-        model='gemma3:1b',  # Make sure you have pulled this model
+        model='qwen3:0.6b',  # Make sure you have pulled this model
         messages=[
             {'role': 'user', 'content': prompt},
         ]
