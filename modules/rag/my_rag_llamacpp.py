@@ -94,52 +94,122 @@ else:
     print("No relevant documents found.")
 print("---------------------\n")
 
-# 7. --- MODIFIED: QUESTION ANSWERING WITH LLAMA-CPP ---
-print("--- Generating Answer with llama-cpp ---")
+
+# 7. --- MODIFIED: QUESTION ANSWERING WITH LLAMA.CPP SERVER (using requests library) ---
+print("--- Generating Answer with llama.cpp server (via requests) ---")
 context = "\n\n".join(doc.page_content for doc in result_docs)
 
-# Build the prompt
-prompt = f"""
+# Build the prompt using the standard chat message format
+messages = [
+    {"role": "system", "content": "You are a helpful assistant that answers questions based only on the provided context."},
+    {"role": "user", "content": f"""
 Answer the following question based only on the provided context.
 
 Context:
 {context}
 
 Question: {query}
-"""
+"""}
+]
+
+# --- CHANGE: Manually construct the API request ---
+# The URL for the server's chat completions endpoint
+url = "http://127.0.0.1:8080/v1/chat/completions"
+
+# The data payload, formatted to match the OpenAI-compatible API
+payload = {
+    "model": "local-model", # Can be any string, it's ignored by the server
+    "messages": messages,
+    "max_tokens": 256,
+    "temperature": 0.7
+}
+
+# The headers for the HTTP request
+headers = {
+    "Content-Type": "application/json"
+}
 
 try:
-    # --- CHANGE: Initialize the Llama model ---
-    # IMPORTANT: Replace "path/to/your/model.gguf" with the actual path to your downloaded model file.
-    # llm = Llama(
-    #     model_path="/data/data/com.termux/files/home/models/gemma-3-1b-it-GGUF/gemma-3-1b-it-Q8_0.gguf",
-    #     n_ctx=2048,      # Context window size
-    #     n_gpu_layers=-1, # -1 to offload all possible layers to GPU
-    # )
-    llm = Llama.from_pretrained(
-        repo_id="Qwen/Qwen2-0.5B-Instruct-GGUF",
-        filename="*q8_0.gguf",
-        verbose=False
-    )
+    print("Sending request to llama.cpp server...")
+    # --- CHANGE: Make the POST request using the requests library ---
+    response = requests.post(url, headers=headers, json=payload)
 
+    # Raise an exception if the request returned an error status code
+    response.raise_for_status()
 
-    # --- CHANGE: Call the Llama.cpp API ---
-    # The API is similar to OpenAI's chat completions
-    response = llm.create_chat_completion(
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that answers questions based only on the provided context."},
-            {"role": "user", "content": prompt},
-        ]
-    )
+    # Parse the JSON response from the server
+    response_json = response.json()
 
-    # Extract and print the answer
-    answer = response['choices'][0]['message']['content']
-    print("Generated Answer:")
+    # Extract and print the answer from the nested JSON structure
+    answer = response_json['choices'][0]['message']['content']
+
+    print("\nGenerated Answer:")
     print(answer)
 
+except requests.exceptions.ConnectionError as e:
+    print(f"\nCONNECTION ERROR: Could not connect to the llama.cpp server.")
+    print("Please ensure the server is running in a separate terminal session.")
+    print(f"Details: {e}")
+except requests.exceptions.HTTPError as e:
+    print(f"\nHTTP ERROR: The server returned an error.")
+    print(f"Status Code: {e.response.status_code}")
+    print(f"Response: {e.response.text}")
 except Exception as e:
     print(f"\nAn error occurred during generation: {e}")
-    print("Please ensure you have installed llama-cpp-python and provided the correct path to your model file.")
 
 finally:
     print("-------------------------------------------\n")
+
+
+
+
+
+# # 7. --- MODIFIED: QUESTION ANSWERING WITH LLAMA-CPP ---
+# print("--- Generating Answer with llama-cpp ---")
+# context = "\n\n".join(doc.page_content for doc in result_docs)
+
+# # Build the prompt
+# prompt = f"""
+# Answer the following question based only on the provided context.
+
+# Context:
+# {context}
+
+# Question: {query}
+# """
+
+# try:
+#     # --- CHANGE: Initialize the Llama model ---
+#     # IMPORTANT: Replace "path/to/your/model.gguf" with the actual path to your downloaded model file.
+#     # llm = Llama(
+#     #     model_path="/data/data/com.termux/files/home/models/gemma-3-1b-it-GGUF/gemma-3-1b-it-Q8_0.gguf",
+#     #     n_ctx=2048,      # Context window size
+#     #     n_gpu_layers=-1, # -1 to offload all possible layers to GPU
+#     # )
+#     llm = Llama.from_pretrained(
+#         repo_id="Qwen/Qwen2-0.5B-Instruct-GGUF",
+#         filename="*q8_0.gguf",
+#         verbose=False
+#     )
+
+
+#     # --- CHANGE: Call the Llama.cpp API ---
+#     # The API is similar to OpenAI's chat completions
+#     response = llm.create_chat_completion(
+#         messages=[
+#             {"role": "system", "content": "You are a helpful assistant that answers questions based only on the provided context."},
+#             {"role": "user", "content": prompt},
+#         ]
+#     )
+
+#     # Extract and print the answer
+#     answer = response['choices'][0]['message']['content']
+#     print("Generated Answer:")
+#     print(answer)
+
+# except Exception as e:
+#     print(f"\nAn error occurred during generation: {e}")
+#     print("Please ensure you have installed llama-cpp-python and provided the correct path to your model file.")
+
+# finally:
+#     print("-------------------------------------------\n")
