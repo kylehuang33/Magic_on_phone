@@ -1,5 +1,11 @@
 import os
 
+# --- Function Controller Configuration ---
+MCP_ON = False
+
+
+
+
 # --- WebSocket Server Configuration ---
 WEBSOCKET_HOST = "0.0.0.0"
 WEBSOCKET_PORT = 8765

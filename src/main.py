@@ -6,8 +6,9 @@ import sys
 
 # Import configurations and handlers
 import config
-from mcp_handler import get_mcp_tools_as_json, create_system_prompt
+from mcp_handler import get_mcp_tools_as_json
 from audio_processing import transcribe_audio_task
+from utils import create_system_prompt
 
 async def audio_handler(websocket, path: str, system_prompt: str):
     """
@@ -74,14 +75,17 @@ async def start_server():
         print("FATAL ERROR: Whisper executable or model not found. Check paths in config.py")
         sys.exit(1)
 
-    # 2. Fetch tools from MCP and build the system prompt
-    tool_list_json = await get_mcp_tools_as_json()
-    if not tool_list_json:
-        print("Exiting: Could not fetch tools from MCP server.")
-        sys.exit(1)
+    if config.MCP_ON:
+        # 2. Fetch tools from MCP and build the system prompt
+        tool_list_json = await get_mcp_tools_as_json()
+        if not tool_list_json:
+            print("Exiting: Could not fetch tools from MCP server.")
+            sys.exit(1)
 
-    system_prompt = create_system_prompt(tool_list_json)
-    print("System prompt initialized successfully.")
+        system_prompt = create_system_prompt(tool_list_json)
+        print("System prompt initialized successfully.")
+    else:
+        system_prompt = ""
 
     # 3. Create a partial handler with the system_prompt "baked in"
     handler_with_prompt = lambda ws, path: audio_handler(ws, path, system_prompt=system_prompt)
