@@ -112,7 +112,7 @@ try:
     # --- CHANGE: Initialize the Llama model ---
     # IMPORTANT: Replace "path/to/your/model.gguf" with the actual path to your downloaded model file.
     llm = Llama(
-        model_path="~/.cache/llama.cpp/ggml-org_gemma-3-1b-it-GGUF_gemma-3-1b-it-Q4_KM.gguf",
+        model_path="~/models/gemma-3-1b-it-GGUF/gemma-3-1b-it-Q4_K_M.gguf",
         n_ctx=2048,      # Context window size
         n_gpu_layers=-1, # -1 to offload all possible layers to GPU
         verbose=False    # Set to True to see more detailed output
